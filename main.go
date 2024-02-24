@@ -26,7 +26,7 @@ func main() {
 
 	var cfg config
 
-	flag.IntVar(&cfg.port, "port", 9999, "API server port")
+	flag.IntVar(&cfg.port, "port", 8080, "API server port")
 	flag.Parse()
 
 	dsn := flag.String("dsn", "root:@/rinha?parseTime=true", "MySQL data source name")
