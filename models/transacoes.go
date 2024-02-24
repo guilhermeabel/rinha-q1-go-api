@@ -6,12 +6,12 @@ import (
 )
 
 type Transacao struct {
-	ID        int
-	IdCliente int
-	Valor     int
-	Tipo      string
-	Descricao string
-	DataHora  time.Time
+	ID          int
+	IdCliente   int
+	Valor       int
+	Tipo        string
+	Descricao   string
+	DataCriacao time.Time
 }
 
 type TransacaoModel struct {
@@ -21,7 +21,7 @@ type TransacaoModel struct {
 func (m *TransacaoModel) Inserir(idCliente int, valor int, tipo string, descricao string) (int, error) {
 	stmt := `INSERT INTO transacoes (idCliente, valor, tipo, descricao, dataCriacao) VALUES(?, ?, ?, ?, ?)`
 
-	result, err := m.DB.Exec(stmt, idCliente, valor, tipo, descricao, time.Now().Format("2006-01-02 15:04:05"))
+	result, err := m.DB.Exec(stmt, idCliente, valor, tipo, descricao, time.Now().Format(time.RFC3339Nano))
 	if err != nil {
 		return 0, err
 	}
@@ -35,8 +35,8 @@ func (m *TransacaoModel) Inserir(idCliente int, valor int, tipo string, descrica
 }
 
 func (m *TransacaoModel) UltimasTransacoesCliente(idCliente int) ([]*Transacao, error) {
-	stmt := `SELECT id, idCliente, valor, tipo, descricao, data FROM transacoes
-	WHERE idCliente = ? ORDER BY data DESC LIMIT 10`
+	stmt := `SELECT id, idCliente, valor, tipo, descricao, dataCriacao FROM transacoes
+	WHERE idCliente = ? ORDER BY dataCriacao DESC LIMIT 10`
 
 	rows, err := m.DB.Query(stmt, idCliente)
 	if err != nil {
@@ -50,7 +50,7 @@ func (m *TransacaoModel) UltimasTransacoesCliente(idCliente int) ([]*Transacao, 
 	for rows.Next() {
 		transacao := &Transacao{}
 
-		err = rows.Scan(&transacao.ID, &transacao.IdCliente, &transacao.Valor, &transacao.Tipo, &transacao.Descricao, &transacao.DataHora)
+		err = rows.Scan(&transacao.ID, &transacao.IdCliente, &transacao.Valor, &transacao.Tipo, &transacao.Descricao, &transacao.DataCriacao)
 		if err != nil {
 			return nil, err
 		}
