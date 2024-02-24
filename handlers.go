@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -93,47 +94,66 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *application) obterExtrato(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.URL.Query().Get("id"))
+	idCliente := 0
+	_, err := fmt.Sscanf(r.URL.Path, "/clientes/%d/extrato", &idCliente)
 
-	if err != nil || id < 1 {
+	if err != nil || idCliente < 1 {
 		http.NotFound(w, r)
 		return
 	}
 
 	// begin transaction
-	cliente, err := app.clientes.Obter(id)
+	cliente, err := app.clientes.Obter(idCliente)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	transacoes, err := app.transacoes.UltimasTransacoesCliente(id)
+	transacoes, err := app.transacoes.UltimasTransacoesCliente(idCliente)
 	if err != nil {
 		// rollback
+		fmt.Printf("Erro: %v\n", err)
+
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	// commit
 	// end transaction
+	dataExtrato := time.Now().Format(time.RFC3339Nano)
 
-	listaTransacoes := []map[string]interface{}{}
+	saldo := map[string]interface{}{
+		"total":        cliente.Saldo,
+		"data_extrato": dataExtrato,
+		"limite":       cliente.Limite,
+	}
+
+	ultimasTransacoes := []map[string]interface{}{}
 	for _, t := range transacoes {
 		transacao := map[string]interface{}{
 			"valor":        t.Valor,
 			"tipo":         t.Tipo,
 			"descricao":    t.Descricao,
-			"realizada_em": t.DataHora,
+			"realizada_em": t.DataCriacao.Format(time.RFC3339Nano),
 		}
-		listaTransacoes = append(listaTransacoes, transacao)
+		ultimasTransacoes = append(ultimasTransacoes, transacao)
 	}
 
-	dataExtrato := time.Now()
+	responseMap := map[string]interface{}{
+		"saldo":              saldo,
+		"ultimas_transacoes": ultimasTransacoes,
+	}
+
+	responseJSON, err := json.Marshal(responseMap)
+	if err != nil {
+		// Handle error
+		http.Error(w, "Failed to marshal JSON response", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	response := fmt.Sprintf(`{"saldo":%d,"limite":%d,"data_extrato":%s,"ultimas_transacoes":%v}`, cliente.Saldo, cliente.Limite, dataExtrato, listaTransacoes)
-	w.Write([]byte(response))
+	w.Write(responseJSON)
 
 	// RESPOSTA
 	// {
