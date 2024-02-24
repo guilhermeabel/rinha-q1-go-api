@@ -19,7 +19,7 @@ type ClienteModel struct {
 func (m *ClienteModel) Atualizar(id int, saldo int, limite int) (int, error) {
 	stmt := `UPDATE clientes SET saldo = ?, limite = ? WHERE id = ? LIMIT 1`
 
-	result, err := m.DB.Exec(stmt, saldo, id)
+	result, err := m.DB.Exec(stmt, saldo, limite, id)
 	if err != nil {
 		return 0, err
 	}

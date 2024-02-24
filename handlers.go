@@ -21,25 +21,28 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 
 	// VALIDAÇÃO
 	// [id] (na URL) deve ser um número inteiro representando a identificação do cliente.
-	idCliente, err := strconv.Atoi(r.URL.Query().Get("id"))
+	idCliente := 0
+	_, err = fmt.Sscanf(r.URL.Path, "/clientes/%d/transacoes", &idCliente)
+
 	if err != nil || idCliente < 1 {
 		http.NotFound(w, r)
 		return
 	}
+
 	// valor deve ser um número inteiro positivo que representa centavos (não vamos trabalhar com frações de centavos). Por exemplo, R$ 10 são 1000 centavos.
 	valorNumerico, err := strconv.Atoi(valor)
 	if err != nil || valorNumerico < 1 {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		http.Error(w, "Erro: campo valor invalido", http.StatusBadRequest)
 		return
 	}
 	// tipo deve ser apenas c para crédito ou d para débito.
 	if tipo != "c" && tipo != "d" {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		http.Error(w, "Erro: campo tipo invalido", http.StatusBadRequest)
 		return
 	}
 	// descricao deve ser uma string de 1 a 10 caracteres.
 	if utf8.RuneCountInString(descricao) <= 0 || utf8.RuneCountInString(descricao) > 10 {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		http.Error(w, "Erro: campo descricao invalido", http.StatusBadRequest)
 		return
 	}
 	// Todos os campos são obrigatórios.
@@ -51,7 +54,7 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = app.transacoes.Inserir(valorNumerico, tipo, descricao)
+	_, err = app.transacoes.Inserir(idCliente, valorNumerico, tipo, descricao)
 	if err != nil {
 		// rollback
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -60,14 +63,13 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 
 	if tipo == "d" && cliente.Saldo-valorNumerico < -cliente.Limite {
 		// rollback
-		http.Error(w, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)
+		http.Error(w, "Limite excedido", http.StatusUnprocessableEntity)
 		return
 	}
 
 	saldoAtualizado := 0
 	if tipo == "c" {
 		saldoAtualizado = cliente.Saldo + valorNumerico
-
 	}
 
 	if tipo == "d" {

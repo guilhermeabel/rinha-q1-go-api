@@ -18,10 +18,10 @@ type TransacaoModel struct {
 	DB *sql.DB
 }
 
-func (m *TransacaoModel) Inserir(valor int, tipo string, descricao string) (int, error) {
-	stmt := `INSERT INTO transacoes (idCliente, valor, tipo, descricao, data) VALUES(?, ?, ?, ?)`
+func (m *TransacaoModel) Inserir(idCliente int, valor int, tipo string, descricao string) (int, error) {
+	stmt := `INSERT INTO transacoes (idCliente, valor, tipo, descricao, dataCriacao) VALUES(?, ?, ?, ?, ?)`
 
-	result, err := m.DB.Exec(stmt, valor, tipo, descricao)
+	result, err := m.DB.Exec(stmt, idCliente, valor, tipo, descricao, time.Now().Format("2006-01-02 15:04:05"))
 	if err != nil {
 		return 0, err
 	}
