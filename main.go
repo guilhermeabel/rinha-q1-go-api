@@ -28,7 +28,7 @@ func main() {
 	flag.IntVar(&cfg.port, "port", 9999, "API server port")
 	flag.Parse()
 
-	dsn := flag.String("dsn", "root:@/rinha", "MySQL data source name")
+	dsn := flag.String("dsn", "root:@/rinha?parseTime=true", "MySQL data source name")
 	flag.Parse()
 
 	db, err := openDB(*dsn)
