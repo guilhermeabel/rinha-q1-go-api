@@ -17,6 +17,7 @@ type config struct {
 
 type application struct {
 	config     config
+	db         *sql.DB
 	transacoes *models.TransacaoModel
 	clientes   *models.ClienteModel
 }
@@ -40,6 +41,7 @@ func main() {
 
 	app := &application{
 		config:     cfg,
+		db:         db,
 		transacoes: &models.TransacaoModel{DB: db},
 		clientes:   &models.ClienteModel{DB: db},
 	}

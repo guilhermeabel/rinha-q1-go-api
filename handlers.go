@@ -48,22 +48,28 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 	}
 	// Todos os campos são obrigatórios.
 
-	// begin transaction
+	tx, err := app.db.Begin()
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
 	cliente, err := app.clientes.Obter(idCliente)
 	if err != nil {
+		tx.Rollback()
 		http.NotFound(w, r)
 		return
 	}
 
 	_, err = app.transacoes.Inserir(idCliente, valorNumerico, tipo, descricao)
 	if err != nil {
-		// rollback
+		tx.Rollback()
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	if tipo == "d" && cliente.Saldo-valorNumerico < -cliente.Limite {
-		// rollback
+		tx.Rollback()
 		http.Error(w, "Limite excedido", http.StatusUnprocessableEntity)
 		return
 	}
@@ -79,13 +85,12 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 
 	_, err = app.clientes.Atualizar(cliente.ID, saldoAtualizado, cliente.Limite)
 	if err != nil {
-		// rollback
+		tx.Rollback()
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	// commit
-	// end transaction
+	tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -102,24 +107,29 @@ func (app *application) obterExtrato(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// begin transaction
+	tx, err := app.db.Begin()
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
 	cliente, err := app.clientes.Obter(idCliente)
 	if err != nil {
+		tx.Rollback()
 		http.NotFound(w, r)
 		return
 	}
 
 	transacoes, err := app.transacoes.UltimasTransacoesCliente(idCliente)
 	if err != nil {
-		// rollback
+		tx.Rollback()
 		fmt.Printf("Erro: %v\n", err)
 
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	// commit
-	// end transaction
+	tx.Commit()
+
 	dataExtrato := time.Now().Format(time.RFC3339Nano)
 
 	saldo := map[string]interface{}{
