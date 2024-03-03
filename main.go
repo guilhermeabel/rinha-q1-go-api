@@ -1,14 +1,14 @@
 package main
 
 import (
-	"database/sql"
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/guilhermeabel/rinha-a1-go-api/models"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type config struct {
@@ -17,19 +17,21 @@ type config struct {
 
 type application struct {
 	config     config
-	db         *sql.DB
+	db         *pgxpool.Pool
 	transacoes *models.TransacaoModel
 	clientes   *models.ClienteModel
 }
 
 func main() {
 
+	fmt.Printf("Rinha A1 - Go API\n")
+
 	var cfg config
 
 	flag.IntVar(&cfg.port, "port", 8080, "API server port")
 	flag.Parse()
 
-	dsn := flag.String("dsn", "root:@/rinha?parseTime=true", "MySQL data source name")
+	dsn := flag.String("dsn", "user=db password=db host=db port=5432 dbname=db", "Postgres data source name")
 	flag.Parse()
 
 	db, err := openDB(*dsn)
@@ -58,13 +60,38 @@ func main() {
 	_ = srv.ListenAndServe()
 }
 
-func openDB(dsn string) (*sql.DB, error) {
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, err
+func openDB(dsn string) (*pgxpool.Pool, error) {
+	var maxAttempts = 3
+	var db *pgxpool.Pool
+	var err error
+	ctx := context.Background()
+
+	for i := 0; i < 10; i++ {
+		db, err = pgxpool.New(ctx, dsn)
+		if err == nil {
+			break
+		} else {
+			println("Failed to connect to DB, retrying in 5 seconds")
+			time.Sleep(5 * time.Second)
+		}
 	}
-	if err = db.Ping(); err != nil {
-		return nil, err
+	println("Connected to DB")
+
+	db.Config().MaxConnIdleTime = 10 * time.Minute
+	db.Config().MaxConnLifetime = 2 * time.Hour
+	db.Config().MaxConns = 95
+	db.Config().MinConns = 85
+	db.Config().HealthCheckPeriod = 10 * time.Minute
+
+	for attempts := 0; attempts < maxAttempts; attempts++ {
+		var err error
+		if err = db.Ping(ctx); err != nil {
+			fmt.Printf("Error pinging database: %s\n", err)
+			time.Sleep(time.Second * 5)
+		} else {
+			break
+		}
 	}
+
 	return db, nil
 }

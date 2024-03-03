@@ -1,20 +1,14 @@
-FROM golang:latest as builder
+FROM golang:alpine AS build
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
-RUN go mod download
-
 COPY . .
 
-RUN go build -o main .
+RUN go mod download
+RUN go build -o /bin/main /app
 
-FROM alpine:latest  
+FROM scratch
 
-WORKDIR /root/
+COPY --from=build /bin/main /
 
-COPY --from=builder /app/main .
-
-EXPOSE 8080
-
-CMD ["./main"]
+ENTRYPOINT ["/main"]

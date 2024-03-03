@@ -7,90 +7,91 @@ import (
 	"strconv"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseForm()
-	if err != nil {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	type transactionRequest = struct {
+		Valor     string `json:"valor"`
+		Tipo      string `json:"tipo"`
+		Descricao string `json:"descricao"`
+	}
+
+	defer r.Body.Close()
+	var tr transactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&tr); err != nil {
+		http.Error(w, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)
 		return
 	}
 
-	valor := r.PostForm.Get("valor")
-	tipo := r.PostForm.Get("tipo")
-	descricao := r.PostForm.Get("descricao")
+	idClienteStr := r.PathValue("id")
+	idCliente, err := strconv.Atoi(idClienteStr)
 
-	// VALIDAÇÃO
-	// [id] (na URL) deve ser um número inteiro representando a identificação do cliente.
-	idCliente := 0
-	_, err = fmt.Sscanf(r.URL.Path, "/clientes/%d/transacoes", &idCliente)
-
-	if err != nil || idCliente < 1 {
+	if err != nil || idCliente < 1 || idCliente > 5 {
 		http.NotFound(w, r)
 		return
 	}
 
-	// valor deve ser um número inteiro positivo que representa centavos (não vamos trabalhar com frações de centavos). Por exemplo, R$ 10 são 1000 centavos.
-	valorNumerico, err := strconv.Atoi(valor)
+	valorNumerico, err := strconv.Atoi(tr.Valor)
 	if err != nil || valorNumerico < 1 {
-		http.Error(w, "Erro: campo valor invalido", http.StatusBadRequest)
+		http.Error(w, "Erro: campo valor invalido", http.StatusUnprocessableEntity)
 		return
 	}
-	// tipo deve ser apenas c para crédito ou d para débito.
-	if tipo != "c" && tipo != "d" {
-		http.Error(w, "Erro: campo tipo invalido", http.StatusBadRequest)
-		return
-	}
-	// descricao deve ser uma string de 1 a 10 caracteres.
-	if utf8.RuneCountInString(descricao) <= 0 || utf8.RuneCountInString(descricao) > 10 {
-		http.Error(w, "Erro: campo descricao invalido", http.StatusBadRequest)
-		return
-	}
-	// Todos os campos são obrigatórios.
 
-	tx, err := app.db.Begin()
+	if tr.Tipo != "c" && tr.Tipo != "d" {
+		http.Error(w, "Erro: campo tipo invalido", http.StatusUnprocessableEntity)
+		return
+	}
+
+	if utf8.RuneCountInString(tr.Descricao) <= 0 || utf8.RuneCountInString(tr.Descricao) > 10 {
+		http.Error(w, "Erro: campo descricao invalido", http.StatusUnprocessableEntity)
+		return
+	}
+
+	tx, err := app.db.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
+		fmt.Printf("Erro ao iniciar transaction: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	cliente, err := app.clientes.Obter(idCliente)
+	cliente, err := app.clientes.Obter(r.Context(), idCliente)
 	if err != nil {
-		tx.Rollback()
+		tx.Rollback(r.Context())
 		http.NotFound(w, r)
 		return
 	}
 
-	_, err = app.transacoes.Inserir(idCliente, valorNumerico, tipo, descricao)
+	err = app.transacoes.Inserir(r.Context(), idCliente, valorNumerico, tr.Tipo, tr.Descricao)
 	if err != nil {
-		tx.Rollback()
+		tx.Rollback(r.Context())
+		fmt.Printf("Erro ao inserir transação: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	if tipo == "d" && cliente.Saldo-valorNumerico < -cliente.Limite {
-		tx.Rollback()
-		http.Error(w, "Limite excedido", http.StatusUnprocessableEntity)
 		return
 	}
 
 	saldoAtualizado := 0
-	if tipo == "c" {
+	if tr.Tipo == "c" {
 		saldoAtualizado = cliente.Saldo + valorNumerico
-	}
-
-	if tipo == "d" {
+	} else {
 		saldoAtualizado = cliente.Saldo - valorNumerico
+		if saldoAtualizado < -cliente.Limite {
+			tx.Rollback(r.Context())
+			http.Error(w, "Limite excedido", http.StatusUnprocessableEntity)
+			return
+		}
 	}
 
-	_, err = app.clientes.Atualizar(cliente.ID, saldoAtualizado, cliente.Limite)
+	_, err = app.clientes.Atualizar(r.Context(), cliente.ID, saldoAtualizado, cliente.Limite)
 	if err != nil {
-		tx.Rollback()
+		tx.Rollback(r.Context())
+		fmt.Printf("Erro ao atualizar cliente: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	tx.Commit()
+	tx.Commit(r.Context())
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -99,6 +100,7 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *application) obterExtrato(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
 	idCliente := 0
 	_, err := fmt.Sscanf(r.URL.Path, "/clientes/%d/extrato", &idCliente)
 
@@ -107,28 +109,28 @@ func (app *application) obterExtrato(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := app.db.Begin()
+	tx, err := app.db.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
+		fmt.Printf("Erro ao iniciar transaction: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	cliente, err := app.clientes.Obter(idCliente)
+	cliente, err := app.clientes.Obter(r.Context(), idCliente)
 	if err != nil {
-		tx.Rollback()
+		tx.Rollback(r.Context())
 		http.NotFound(w, r)
 		return
 	}
 
-	transacoes, err := app.transacoes.UltimasTransacoesCliente(idCliente)
+	transacoes, err := app.transacoes.UltimasTransacoesCliente(r.Context(), idCliente)
 	if err != nil {
-		tx.Rollback()
-		fmt.Printf("Erro: %v\n", err)
-
+		tx.Rollback(r.Context())
+		fmt.Printf("Erro ao obter transações: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	tx.Commit()
+	tx.Commit(r.Context())
 
 	dataExtrato := time.Now().Format(time.RFC3339Nano)
 
@@ -156,7 +158,6 @@ func (app *application) obterExtrato(w http.ResponseWriter, r *http.Request) {
 
 	responseJSON, err := json.Marshal(responseMap)
 	if err != nil {
-		// Handle error
 		http.Error(w, "Failed to marshal JSON response", http.StatusInternalServerError)
 		return
 	}
@@ -164,40 +165,5 @@ func (app *application) obterExtrato(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(responseJSON)
-
-	// RESPOSTA
-	// {
-	// 	"saldo": {
-	// 	  "total": -9098,
-	// 	  "data_extrato": "2024-01-17T02:34:41.217753Z",
-	// 	  "limite": 100000
-	// 	},
-	// 	"ultimas_transacoes": [
-	// 	  {
-	// 		"valor": 10,
-	// 		"tipo": "c",
-	// 		"descricao": "descricao",
-	// 		"realizada_em": "2024-01-17T02:34:38.543030Z"
-	// 	  },
-	// 	  {
-	// 		"valor": 90000,
-	// 		"tipo": "d",
-	// 		"descricao": "descricao",
-	// 		"realizada_em": "2024-01-17T02:34:38.543030Z"
-	// 	  }
-	// 	]
-	//   }
-
-	// saldo
-	// total deve ser o saldo total atual do cliente (não apenas das últimas transações seguintes exibidas).
-	// data_extrato deve ser a data/hora da consulta do extrato.
-	// limite deve ser o limite cadastrado do cliente.
-	// ultimas_transacoes é uma lista ordenada por data/hora das transações de forma decrescente contendo até as 10 últimas transações com o seguinte:
-	// valor deve ser o valor da transação.
-	// tipo deve ser c para crédito e d para débito.
-	// descricao deve ser a descrição informada durante a transação.
-	// realizada_em deve ser a data/hora da realização da transação.
-
-	// Regras Se o atributo [id] da URL for de uma identificação não existente de cliente, a API deve retornar HTTP Status Code 404. O corpo da resposta nesse caso não será testado e você pode escolher como o representar. Já sabe o que acontece se sua API retornar algo na faixa 2XX, né? Agradecido.
 
 }
