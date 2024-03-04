@@ -7,13 +7,11 @@ import (
 	"strconv"
 	"time"
 	"unicode/utf8"
-
-	"github.com/jackc/pgx/v5"
 )
 
 func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 	type transactionRequest = struct {
-		Valor     string `json:"valor"`
+		Valor     int    `json:"valor"`
 		Tipo      string `json:"tipo"`
 		Descricao string `json:"descricao"`
 	}
@@ -21,7 +19,7 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	var tr transactionRequest
 	if err := json.NewDecoder(r.Body).Decode(&tr); err != nil {
-		http.Error(w, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)
+		http.Error(w, "Erro ao decodificar body", http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -33,8 +31,7 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valorNumerico, err := strconv.Atoi(tr.Valor)
-	if err != nil || valorNumerico < 1 {
+	if tr.Valor < 1 {
 		http.Error(w, "Erro: campo valor invalido", http.StatusUnprocessableEntity)
 		return
 	}
@@ -44,26 +41,27 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if utf8.RuneCountInString(tr.Descricao) <= 0 || utf8.RuneCountInString(tr.Descricao) > 10 {
+	var comprimentoDescricao = utf8.RuneCountInString(tr.Descricao)
+	if comprimentoDescricao < 1 || comprimentoDescricao > 10 {
 		http.Error(w, "Erro: campo descricao invalido", http.StatusUnprocessableEntity)
 		return
 	}
 
-	tx, err := app.db.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := app.db.Begin(r.Context())
 	if err != nil {
-		fmt.Printf("Erro ao iniciar transaction: %v\n", err)
+		fmt.Printf("Erro begin transaction [post]: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	cliente, err := app.clientes.Obter(r.Context(), idCliente)
+	cliente, err := app.clientes.Obter(tx, r.Context(), idCliente)
 	if err != nil {
 		tx.Rollback(r.Context())
 		http.NotFound(w, r)
 		return
 	}
 
-	err = app.transacoes.Inserir(r.Context(), idCliente, valorNumerico, tr.Tipo, tr.Descricao)
+	err = app.transacoes.Inserir(tx, r.Context(), idCliente, tr.Valor, tr.Tipo, tr.Descricao)
 	if err != nil {
 		tx.Rollback(r.Context())
 		fmt.Printf("Erro ao inserir transação: %v\n", err)
@@ -71,11 +69,11 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saldoAtualizado := 0
+	saldoAtualizado := cliente.Saldo
 	if tr.Tipo == "c" {
-		saldoAtualizado = cliente.Saldo + valorNumerico
+		saldoAtualizado += tr.Valor
 	} else {
-		saldoAtualizado = cliente.Saldo - valorNumerico
+		saldoAtualizado -= tr.Valor
 		if saldoAtualizado < -cliente.Limite {
 			tx.Rollback(r.Context())
 			http.Error(w, "Limite excedido", http.StatusUnprocessableEntity)
@@ -83,7 +81,7 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err = app.clientes.Atualizar(r.Context(), cliente.ID, saldoAtualizado, cliente.Limite)
+	_, err = app.clientes.Atualizar(tx, r.Context(), cliente.ID, saldoAtualizado)
 	if err != nil {
 		tx.Rollback(r.Context())
 		fmt.Printf("Erro ao atualizar cliente: %v\n", err)
@@ -101,28 +99,28 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 
 func (app *application) obterExtrato(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	idCliente := 0
-	_, err := fmt.Sscanf(r.URL.Path, "/clientes/%d/extrato", &idCliente)
+	idClienteStr := r.PathValue("id")
+	idCliente, err := strconv.Atoi(idClienteStr)
 
 	if err != nil || idCliente < 1 {
 		http.NotFound(w, r)
 		return
 	}
 
-	tx, err := app.db.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := app.db.Begin(r.Context())
 	if err != nil {
-		fmt.Printf("Erro ao iniciar transaction: %v\n", err)
+		fmt.Printf("Erro begin transaction [get]: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	cliente, err := app.clientes.Obter(r.Context(), idCliente)
+	cliente, err := app.clientes.Obter(tx, r.Context(), idCliente)
 	if err != nil {
 		tx.Rollback(r.Context())
 		http.NotFound(w, r)
 		return
 	}
 
-	transacoes, err := app.transacoes.UltimasTransacoesCliente(r.Context(), idCliente)
+	transacoes, err := app.transacoes.UltimasTransacoesCliente(tx, r.Context(), idCliente)
 	if err != nil {
 		tx.Rollback(r.Context())
 		fmt.Printf("Erro ao obter transações: %v\n", err)

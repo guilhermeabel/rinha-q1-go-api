@@ -34,7 +34,9 @@ func main() {
 	dsn := flag.String("dsn", "user=db password=db host=db port=5432 dbname=db", "Postgres data source name")
 	flag.Parse()
 
-	db, err := openDB(*dsn)
+	ctx := context.Background()
+
+	db, err := openDB(*dsn, ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -60,11 +62,10 @@ func main() {
 	_ = srv.ListenAndServe()
 }
 
-func openDB(dsn string) (*pgxpool.Pool, error) {
+func openDB(dsn string, ctx context.Context) (*pgxpool.Pool, error) {
 	var maxAttempts = 3
 	var db *pgxpool.Pool
 	var err error
-	ctx := context.Background()
 
 	for i := 0; i < 10; i++ {
 		db, err = pgxpool.New(ctx, dsn)

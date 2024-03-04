@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Cliente struct {
 	ID     int
-	Nome   string
 	Limite int
 	Saldo  int
 }
@@ -19,10 +19,10 @@ type ClienteModel struct {
 	DB *pgxpool.Pool
 }
 
-func (m *ClienteModel) Atualizar(ctx context.Context, id int, saldo int, limite int) (int, error) {
-	stmt := `UPDATE clientes SET saldo = $1, limite = $2 WHERE id = $3 LIMIT 1`
+func (m *ClienteModel) Atualizar(tx pgx.Tx, ctx context.Context, id int, saldo int) (int, error) {
+	stmt := `UPDATE clientes SET saldo = $1 WHERE id = $2`
 
-	result, err := m.DB.Exec(ctx, stmt, saldo, limite, id)
+	result, err := tx.Exec(ctx, stmt, saldo, id)
 	if err != nil {
 		return 0, err
 	}
@@ -33,14 +33,13 @@ func (m *ClienteModel) Atualizar(ctx context.Context, id int, saldo int, limite 
 
 }
 
-func (m *ClienteModel) Obter(ctx context.Context, id int) (*Cliente, error) {
-	stmt := `SELECT id, nome, limite, saldo FROM clientes WHERE id = $1`
+func (m *ClienteModel) Obter(tx pgx.Tx, ctx context.Context, id int) (*Cliente, error) {
+	stmt := `SELECT id, limite, saldo FROM clientes WHERE id = $1 LIMIT 1`
 
-	row := m.DB.QueryRow(ctx, stmt, id)
-
+	row := tx.QueryRow(ctx, stmt, id)
 	cliente := &Cliente{}
 
-	err := row.Scan(&cliente.ID, &cliente.Nome, &cliente.Limite, &cliente.Saldo)
+	err := row.Scan(&cliente.ID, &cliente.Limite, &cliente.Saldo)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNoRecord

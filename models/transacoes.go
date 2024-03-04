@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -20,10 +21,10 @@ type TransacaoModel struct {
 	DB *pgxpool.Pool
 }
 
-func (m *TransacaoModel) Inserir(ctx context.Context, idCliente int, valor int, tipo string, descricao string) error {
+func (m *TransacaoModel) Inserir(tx pgx.Tx, ctx context.Context, idCliente int, valor int, tipo string, descricao string) error {
 	stmt := `INSERT INTO transacoes (idCliente, valor, tipo, descricao, dataCriacao) VALUES($1, $2, $3, $4, $5)`
 
-	_, err := m.DB.Exec(ctx, stmt, idCliente, valor, tipo, descricao, time.Now())
+	_, err := tx.Exec(ctx, stmt, idCliente, valor, tipo, descricao, time.Now())
 	if err != nil {
 		return err
 	}
@@ -31,11 +32,11 @@ func (m *TransacaoModel) Inserir(ctx context.Context, idCliente int, valor int, 
 	return nil
 }
 
-func (m *TransacaoModel) UltimasTransacoesCliente(ctx context.Context, idCliente int) ([]*Transacao, error) {
+func (m *TransacaoModel) UltimasTransacoesCliente(tx pgx.Tx, ctx context.Context, idCliente int) ([]*Transacao, error) {
 	stmt := `SELECT id, idCliente, valor, tipo, descricao, dataCriacao FROM transacoes
 	WHERE idCliente = $1 ORDER BY dataCriacao DESC LIMIT 10`
 
-	rows, err := m.DB.Query(ctx, stmt, idCliente)
+	rows, err := tx.Query(ctx, stmt, idCliente)
 	if err != nil {
 		return nil, err
 	}
