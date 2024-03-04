@@ -52,9 +52,9 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 	var limite int
 
 	if tr.Tipo == "c" {
-		err = app.db.QueryRow(r.Context(), "SELECT * FROM credit($1, $2, $3)", idCliente, tr.Valor, tr.Descricao).Scan(&saldoAtualizado, &success, &limite)
+		err = app.db.QueryRow(r.Context(), "SELECT * FROM creditar($1, $2, $3)", idCliente, tr.Valor, tr.Descricao).Scan(&saldoAtualizado, &success, &limite)
 	} else {
-		err = app.db.QueryRow(r.Context(), "SELECT * FROM debit($1, $2, $3)", idCliente, tr.Valor, tr.Descricao).Scan(&saldoAtualizado, &success, &limite)
+		err = app.db.QueryRow(r.Context(), "SELECT * FROM debitar($1, $2, $3)", idCliente, tr.Valor, tr.Descricao).Scan(&saldoAtualizado, &success, &limite)
 	}
 	if err != nil || !success {
 		http.Error(w, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)

@@ -26,7 +26,7 @@ SET (autovacuum_enabled = false);
 
 CREATE INDEX idx_transacoes ON transacoes (idCliente ASC);
 
-CREATE OR REPLACE FUNCTION debit(
+CREATE OR REPLACE FUNCTION debitar(
     idClienteTx INTEGER,
     valorTx INT,
     descricaoTx VARCHAR(10))
@@ -43,8 +43,8 @@ BEGIN
     PERFORM pg_advisory_xact_lock(idClienteTx);
 
     SELECT 
-        limite,
-        saldo
+        clientes.limite,
+        clientes.saldo
     INTO
         limiteAtual,
         saldoAtual
@@ -52,38 +52,38 @@ BEGIN
     WHERE id = idClienteTx;
 
     IF saldoAtual - valorTx >= limiteAtual * -1 THEN
-        INSERT INTO transacoes VALUES(DEFAULT, idClienteTx, valorTx, 'd', descricaoTx);
+        INSERT INTO transacoes VALUES(DEFAULT, idClienteTx, valorTx, 'd', descricaoTx, NOW());
         
         RETURN QUERY
         UPDATE clientes 
         SET saldo = saldo - valorTx 
         WHERE id = idClienteTx
-        RETURNING saldo, TRUE, limite;
+        RETURNING saldo, TRUE, limiteAtual;
     ELSE
         RETURN QUERY SELECT saldoAtual, FALSE, limiteAtual;
     END IF;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION credit(
+CREATE OR REPLACE FUNCTION creditar(
     idClienteTx INTEGER,
     valorTx INT,
     descricaoTx VARCHAR(10))
 RETURNS TABLE (
     novoSaldo INT,
     sucesso BOOL,
-    limite INT)
+    limiteAtual INT)
 LANGUAGE plpgsql
 AS $$
 BEGIN
     PERFORM pg_advisory_xact_lock(idClienteTx);
 
-    INSERT INTO transacoes VALUES(DEFAULT, idClienteTx, valorTx, 'c', descricaoTx);
+    INSERT INTO transacoes VALUES(DEFAULT, idClienteTx, valorTx, 'c', descricaoTx, NOW());
 
     RETURN QUERY
         UPDATE clientes
         SET saldo = saldo + valorTx
         WHERE id = idClienteTx
-        RETURNING saldo, TRUE, limite;
+        RETURNING saldo, TRUE, clientes.limite;
 END;
 $$;
