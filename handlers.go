@@ -47,53 +47,23 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := app.db.Begin(r.Context())
-	if err != nil {
-		fmt.Printf("Erro begin transaction [post]: %v\n", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
+	var saldoAtualizado int
+	var success bool
+	var limite int
 
-	cliente, err := app.clientes.Obter(tx, r.Context(), idCliente)
-	if err != nil {
-		tx.Rollback(r.Context())
-		http.NotFound(w, r)
-		return
-	}
-
-	err = app.transacoes.Inserir(tx, r.Context(), idCliente, tr.Valor, tr.Tipo, tr.Descricao)
-	if err != nil {
-		tx.Rollback(r.Context())
-		fmt.Printf("Erro ao inserir transação: %v\n", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	saldoAtualizado := cliente.Saldo
 	if tr.Tipo == "c" {
-		saldoAtualizado += tr.Valor
+		err = app.db.QueryRow(r.Context(), "SELECT * FROM credit($1, $2, $3)", idCliente, tr.Valor, tr.Descricao).Scan(&saldoAtualizado, &success, &limite)
 	} else {
-		saldoAtualizado -= tr.Valor
-		if saldoAtualizado < -cliente.Limite {
-			tx.Rollback(r.Context())
-			http.Error(w, "Limite excedido", http.StatusUnprocessableEntity)
-			return
-		}
+		err = app.db.QueryRow(r.Context(), "SELECT * FROM debit($1, $2, $3)", idCliente, tr.Valor, tr.Descricao).Scan(&saldoAtualizado, &success, &limite)
 	}
-
-	_, err = app.clientes.Atualizar(tx, r.Context(), cliente.ID, saldoAtualizado)
-	if err != nil {
-		tx.Rollback(r.Context())
-		fmt.Printf("Erro ao atualizar cliente: %v\n", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	if err != nil || !success {
+		http.Error(w, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)
 		return
 	}
-
-	tx.Commit(r.Context())
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	response := fmt.Sprintf(`{"limite":%d,"saldo":%d}`, cliente.Limite, saldoAtualizado)
+	response := fmt.Sprintf(`{"limite":%d,"saldo":%d}`, limite, saldoAtualizado)
 	w.Write([]byte(response))
 }
 
