@@ -46,24 +46,55 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Erro: campo descricao invalido", http.StatusUnprocessableEntity)
 		return
 	}
+	tx, err := app.db.Begin(r.Context())
+	defer tx.Rollback(r.Context())
 
-	var saldoAtualizado int
-	var success bool
-	var limite int
-
-	if tr.Tipo == "c" {
-		err = app.db.QueryRow(r.Context(), "SELECT * FROM creditar($1, $2, $3)", idCliente, tr.Valor, tr.Descricao).Scan(&saldoAtualizado, &success, &limite)
-	} else {
-		err = app.db.QueryRow(r.Context(), "SELECT * FROM debitar($1, $2, $3)", idCliente, tr.Valor, tr.Descricao).Scan(&saldoAtualizado, &success, &limite)
+	if err != nil {
+		fmt.Printf("Erro begin transaction [post]: %v\n", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
 	}
-	if err != nil || !success {
-		http.Error(w, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)
+
+	cliente, err := app.clientes.Obter(tx, r.Context(), idCliente)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	err = app.transacoes.Inserir(tx, r.Context(), idCliente, tr.Valor, tr.Tipo, tr.Descricao)
+	if err != nil {
+		fmt.Printf("Erro ao inserir transação: %v\n", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	saldoAtualizado := cliente.Saldo
+	if tr.Tipo == "c" {
+		saldoAtualizado += tr.Valor
+	} else {
+		saldoAtualizado -= tr.Valor
+		if saldoAtualizado < -cliente.Limite {
+			http.Error(w, "Limite excedido", http.StatusUnprocessableEntity)
+			return
+		}
+	}
+	_, err = app.clientes.Atualizar(tx, r.Context(), cliente.ID, saldoAtualizado)
+	if err != nil {
+		fmt.Printf("Erro ao atualizar cliente: %v\n", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	err = tx.Commit(r.Context())
+	if err != nil {
+		fmt.Printf("Erro ao commitar transação: %v\n", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	response := fmt.Sprintf(`{"limite":%d,"saldo":%d}`, limite, saldoAtualizado)
+	response := fmt.Sprintf(`{"limite":%d,"saldo":%d}`, cliente.Limite, saldoAtualizado)
 	w.Write([]byte(response))
 }
 

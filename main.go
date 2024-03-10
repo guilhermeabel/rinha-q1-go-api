@@ -58,6 +58,16 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
+	// go func() {
+	// 	for {
+	// 		time.Sleep(2 * time.Second)
+	// 		err := app.transacoes.LimparTransacoesAntigas(ctx)
+	// 		if err != nil {
+	// 			fmt.Printf("Erro ao limpar transacoes antigas: %v\n", err)
+	// 		}
+	// 	}
+	// }()
+
 	fmt.Printf("Server running on port %d\n", cfg.port)
 	_ = srv.ListenAndServe()
 }
