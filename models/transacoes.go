@@ -22,6 +22,15 @@ type TransacaoModel struct {
 	DB *pgxpool.Pool
 }
 
+func (m *TransacaoModel) LockTable(tx pgx.Tx, ctx context.Context, idCliente int) error {
+	_, err := tx.Exec(ctx, "LOCK TABLE transacoes_"+strconv.Itoa(idCliente)+" IN EXCLUSIVE MODE")
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *TransacaoModel) Inserir(tx pgx.Tx, ctx context.Context, idCliente int, valor int, tipo string, descricao string) error {
 	stmt := `INSERT INTO transacoes_` + strconv.Itoa(idCliente)
 	stmt = stmt + ` (valor, tipo, descricao, dataCriacao) VALUES($1, $2, $3, $4)`

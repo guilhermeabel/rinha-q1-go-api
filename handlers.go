@@ -55,6 +55,13 @@ func (app *application) criarTransacao(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = app.transacoes.LockTable(tx, r.Context(), idCliente)
+	if err != nil {
+		fmt.Printf("Erro ao realizar lock da tabela: %v\n", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
 	cliente, err := app.clientes.Obter(tx, r.Context(), idCliente)
 	if err != nil {
 		http.NotFound(w, r)
